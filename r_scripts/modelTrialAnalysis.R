@@ -1,5 +1,6 @@
 # Libraries ----
 library(tidyverse)
+library(psych)
 
 # Helper functions ----
 long2Matrix <- function(data, idCol, corrCol, trialNCol, standardize = FALSE) {
@@ -70,6 +71,18 @@ matrix2Long <- function(matrix) {
     return(longData)
 }
 
+matrix2Rel <- function(mat, check.keys = FALSE, covar = FALSE) {
+    # Check if matrix has a cor row
+    if ("cor" %in% rownames(mat)) {
+        tmp <- mat[, !is.na(mat["cor", ])]
+        tmp <- tmp[seq_len(nrow(tmp) - 3), seq_len(ncol(tmp) - 1)]
+    } else { # Just process the entire table
+        # Remove columns with no variance
+        tmp <- mat[, !(colMeans(mat) == 1 | colMeans(mat) == 0)]
+    }
+    return(splitHalf(tmp, check.keys = check.keys, covar = covar))
+}
+
 # Load data ----
 # Load human data
 humanLEMatrix <- read_csv("./data_storage/humanData/le1.csv") |>
@@ -84,14 +97,13 @@ colnames(humanMatchMatrix) <- gsub("X", "", colnames(humanMatchMatrix))
 colnames(humanMOOMatrix) <- gsub("X", "", colnames(humanMOOMatrix))
 
 # Load model data from grid search ----
-modelDir <- "./data_storage/results/"
+modelDir <- "./data_storage/results/v3ModelingDataBackup"
 
 # Handle LE data
-# List csv files that have learn_exemp in it
 modelLEFiles <- list.files(modelDir, pattern = "results_learn_exemp", full.names = TRUE)
 
 humanLEDiff <- colMeans(humanLEMatrix)
-LEParamData <- tibble(noise = numeric(), MSE = numeric())
+LEParamData <- tibble(noise = numeric(), learnAdv = numeric(), MSE = numeric(), Cor = numeric(), Rel = numeric(), NoVar = numeric())
 # Loop through files
 for (file in modelLEFiles) {
     # Find model parameters in the file
@@ -103,17 +115,27 @@ for (file in modelLEFiles) {
         strsplit("_") |>
         unlist()
 
-    # LE only has noise so this is easy
-    noiseParam <- str_split(tmpParams, "-") |>
-        unlist() |>
-        tail(1) |>
+    # LE only noise and learnAdv
+    noiseParam <- tmpParams[str_detect(tmpParams, "noise")] |>
+        str_replace("noise-", "") |>
+        as.numeric()
+    learnAdvParam <- tmpParams[str_detect(tmpParams, "learnAdv")] |>
+        str_replace("learnAdv-", "") |>
         as.numeric()
 
+    if (length(learnAdvParam) == 0) {
+        learnAdvParam <- 0
+    }
+
     # Load data
-    tmpData <- read_csv(file)
+    tmpData <- read_csv(file, show_col_types = FALSE)
 
     # Convert to matrix
     tmpMatrix <- long2Matrix(tmpData, "ModelName", "Corr", "Trial")
+
+    # Calculate reliability
+    rel <- matrix2Rel(tmpMatrix)$lambda2
+
     # Remove extra columns and rows
     tmpMatrix <- tmpMatrix |>
         select(-Sum) |>
@@ -121,12 +143,20 @@ for (file in modelLEFiles) {
 
     # Calculate difference in difficulty between this model and human
     tmpDiff <- mean((colMeans(tmpMatrix) - humanLEDiff)^2)
+    tmpCor <- cor(colMeans(tmpMatrix), humanLEDiff)
+
+    # Calculate ceiling/floor trials
+    tmpNoVar <- sum(colMeans(tmpMatrix) == 0 | colMeans(tmpMatrix) == 1)
 
     # Add to tibble
     LEParamData <- LEParamData |>
         add_row(
             noise = noiseParam,
-            MSE = tmpDiff
+            learnAdv = learnAdvParam,
+            MSE = tmpDiff,
+            Cor = tmpCor,
+            Rel = rel,
+            NoVar = tmpNoVar
         )
 }
 
@@ -134,7 +164,7 @@ for (file in modelLEFiles) {
 modelMatchFiles <- list.files(modelDir, pattern = "results_threeAFC", full.names = TRUE)
 
 humanMatchDiff <- colMeans(humanMatchMatrix)
-matchParamData <- tibble(noise = numeric(), encNoise = numeric(), MSE = numeric())
+matchParamData <- tibble(noise = numeric(), learningAdv = numeric(), encNoise = numeric(), MSE = numeric(), Cor = numeric(), Rel = numeric(), NoVar = numeric())
 # Loop through files
 for (file in modelMatchFiles) {
     # Find model parameters in the file
@@ -146,35 +176,55 @@ for (file in modelMatchFiles) {
         strsplit("_") |>
         unlist()
 
-    # Match has noise and encNoise
-    noiseParam <- str_split(tmpParams[1], "-") |>
-        unlist() |>
-        tail(1) |>
+    # Match has noise, encNoise, learningAdv
+    noiseParam <- tmpParams[str_detect(tmpParams, "noise")] |>
+        str_replace("noise-", "") |>
         as.numeric()
-    encNoiseParam <- str_split(tmpParams[2], "-") |>
-        unlist() |>
-        tail(1) |>
+    encNoiseParam <- tmpParams[str_detect(tmpParams, "encNoise")] |>
+        str_replace("encNoise-", "") |>
+        as.numeric()
+    learnAdvParam <- tmpParams[str_detect(tmpParams, "learnAdv")] |>
+        str_replace("learnAdv-", "") |>
         as.numeric()
 
+    if (length(learnAdvParam) == 0) {
+        learnAdvParam <- 0
+    }
+    if (length(encNoiseParam) == 0) {
+        encNoiseParam <- 0
+    }
     # Load data
-    tmpData <- read_csv(file)
+    tmpData <- read_csv(file, show_col_types = FALSE)
 
     # Convert to matrix
     tmpMatrix <- long2Matrix(tmpData, "ModelName", "Corr", "Trial")
+
+    # Calculate reliability
+    rel <- matrix2Rel(tmpMatrix)$lambda2
+
     # Remove extra columns and rows
     tmpMatrix <- tmpMatrix |>
         select(-Sum) |>
         filter(!row.names(tmpMatrix) %in% c("mean", "cor", "var"))
 
+
     # Calculate difference in difficulty between this model and human
     tmpDiff <- mean((colMeans(tmpMatrix) - humanMatchDiff)^2)
+    tmpCor <- cor(colMeans(tmpMatrix), humanMatchDiff)
+
+    # Calculate ceiling/floor trials
+    tmpNoVar <- sum(colMeans(tmpMatrix) == 0 | colMeans(tmpMatrix) == 1)
 
     # Add to tibble
     matchParamData <- matchParamData |>
         add_row(
             noise = noiseParam,
+            learningAdv = learnAdvParam,
             encNoise = encNoiseParam,
-            MSE = tmpDiff
+            MSE = tmpDiff,
+            Cor = tmpCor,
+            Rel = rel,
+            NoVar = tmpNoVar
         )
 }
 matchParamData
@@ -183,7 +233,7 @@ matchParamData
 modelMOOFiles <- list.files(modelDir, pattern = "results_many_odd", full.names = TRUE)
 
 humanMOODiff <- colMeans(humanMOOMatrix)
-MOOParamData <- tibble(noise = numeric(), encNoise = numeric(), MSE = numeric())
+MOOParamData <- tibble(noise = numeric(), encNoise = numeric(), MSE = numeric(), Cor = numeric(), Rel = numeric(), NoVar = numeric())
 # Loop through files
 for (file in modelMOOFiles) {
     # Find model parameters in the file
@@ -205,11 +255,19 @@ for (file in modelMOOFiles) {
         tail(1) |>
         as.numeric()
 
+    if (length(encNoiseParam) == 0) {
+        encNoiseParam <- 0
+    }
+
     # Load data
-    tmpData <- read_csv(file)
+    tmpData <- read_csv(file, show_col_types = FALSE)
 
     # Convert to matrix
     tmpMatrix <- long2Matrix(tmpData, "ModelName", "Corr", "Trial")
+
+    # Calculate reliability
+    rel <- matrix2Rel(tmpMatrix)$lambda2
+
     # Remove extra columns and rows
     tmpMatrix <- tmpMatrix |>
         select(-Sum) |>
@@ -217,13 +275,20 @@ for (file in modelMOOFiles) {
 
     # Calculate difference in difficulty between this model and human
     tmpDiff <- mean((colMeans(tmpMatrix) - humanMOODiff)^2)
+    tmpCor <- cor(colMeans(tmpMatrix), humanMOODiff)
+
+    # Calculate ceiling/floor trials
+    tmpNoVar <- sum(colMeans(tmpMatrix) == 0 | colMeans(tmpMatrix) == 1)
 
     # Add to tibble
     MOOParamData <- MOOParamData |>
         add_row(
             noise = noiseParam,
             encNoise = encNoiseParam,
-            MSE = tmpDiff
+            MSE = tmpDiff,
+            Cor = tmpCor,
+            Rel = rel,
+            NoVar = tmpNoVar
         )
 }
 MOOParamData

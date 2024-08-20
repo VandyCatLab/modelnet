@@ -262,11 +262,16 @@ disattCor <- function(rxy, rxx, ryy) {
     return(rxy / sqrt(rxx * ryy))
 }
 
-matrix2Rel <- function(mat) {
-    tmp <- mat[, !is.na(mat["cor", ])]
-    tmp <- tmp[seq_len(nrow(tmp) - 3), seq_len(ncol(tmp) - 1)]
-
-    return(splitHalf(tmp, check.keys = FALSE))
+matrix2Rel <- function(mat, check.keys = FALSE, covar = FALSE) {
+    # Check if matrix has a cor row
+    if ("cor" %in% rownames(mat)) {
+        tmp <- mat[, !is.na(mat["cor", ])]
+        tmp <- tmp[seq_len(nrow(tmp) - 3), seq_len(ncol(tmp) - 1)]
+    } else { # Just process the entire table
+        # Remove columns with no variance
+        tmp <- mat[, !(colMeans(mat) == 1 | colMeans(mat) == 0)]
+    }
+    return(splitHalf(tmp, check.keys = check.keys, covar = covar))
 }
 
 aggRel <- function(data, rel) {
@@ -308,15 +313,15 @@ colnames(humanMatch2) <- gsub("Corr.", "", colnames(humanMatch2))
 colnames(humanMOO2) <- gsub("Corr.", "", colnames(humanMOO2))
 
 # Load model data
-modelLE <- read_csv("./data_storage/results/results_learn_exemp_noise-1.0.csv")
+modelLE <- read_csv("./data_storage/results/v3ModelingDataBackup/results_learn_exemp_noise-2.0_learnAdv-0.02.csv")
 modelLE <- long2Matrix(modelLE, "ModelName", "Corr", "Trial")
 modelLE <- modelLE[!rownames(modelLE) %in% c("mean", "cor", "var"), !colnames(modelLE) %in% c("Sum")]
 
-modelMatch <- read_csv("./data_storage/results/results_threeAFC_noise-1.0_encNoise-1.0.csv")
+modelMatch <- read_csv("./data_storage/results/v3ModelingDataBackup/results_threeAFC_noise-0.25_learnAdv-0.2_encNoise-0.5.csv")
 modelMatch <- long2Matrix(modelMatch, "ModelName", "Corr", "Trial")
 modelMatch <- modelMatch[!rownames(modelMatch) %in% c("mean", "cor", "var"), !colnames(modelMatch) %in% c("Sum")]
 
-modelMOO <- read_csv("./data_storage/results/results_many_odd_noise-1.0_encNoise-1.0.csv")
+modelMOO <- read_csv("./data_storage/results/v3ModelingDataBackup/results_many_odd_noise-0.25_encNoise-0.75.csv")
 modelMOO <- long2Matrix(modelMOO, "ModelName", "Corr", "Trial")
 modelMOO <- modelMOO[!rownames(modelMOO) %in% c("mean", "cor", "var"), !colnames(modelMOO) %in% c("Sum")]
 
@@ -362,20 +367,25 @@ modelSummary <- tibble(
     )
 
 # Load model attribute summary
-modelInfo <- read_csv("./data_storage/results/models_summary_timm.csv")
+modelInfo <- read_csv("./data_storage/results/models_summary_timm.csv") |>
+    add_row(read_csv("./data_storage/results/models_summary_tfhub.csv")) |>
+    add_row(read_csv("./data_storage/results/models_summary_keras.csv"))
+
+# Change any column names with spaces to use underscore
+colnames(modelInfo) <- gsub(" ", "_", colnames(modelInfo))
 
 # Test specific measures ----
 # Reliability
-humanLERel <- splitHalf(humanLE, check.keys = FALSE)$lambda2
-humanMatchRel <- splitHalf(humanMatch, check.keys = FALSE)$lambda2
-humanMOORel <- splitHalf(humanMOO, check.keys = FALSE)$lambda2
-humanLE2Rel <- splitHalf(humanLE2, check.keys = FALSE)$lambda2
-humanMatch2Rel <- splitHalf(humanMatch2, check.keys = FALSE)$lambda2
-humanMOO2Rel <- splitHalf(humanMOO2, check.keys = FALSE, covar = TRUE)$lambda2
+humanLERel <- matrix2Rel(humanLE, check.keys = FALSE)$lambda2
+humanMatchRel <- matrix2Rel(humanMatch, check.keys = FALSE)$lambda2
+humanMOORel <- matrix2Rel(humanMOO, check.keys = FALSE)$lambda2
+humanLE2Rel <- matrix2Rel(humanLE2, check.keys = FALSE)$lambda2
+humanMatch2Rel <- matrix2Rel(humanMatch2, check.keys = FALSE)$lambda2
+humanMOO2Rel <- matrix2Rel(humanMOO2, check.keys = FALSE, covar = TRUE)$lambda2
 
-modelLERel <- splitHalf(modelLE, check.keys = FALSE)$lambda2
-modelMatchRel <- splitHalf(modelMatch, check.keys = FALSE)$lambda2
-modelMOORel <- splitHalf(modelMOO, check.keys = FALSE, covar = TRUE)$lambda2
+modelLERel <- matrix2Rel(modelLE, check.keys = FALSE)$lambda2
+modelMatchRel <- matrix2Rel(modelMatch, check.keys = FALSE)$lambda2
+modelMOORel <- matrix2Rel(modelMOO, check.keys = FALSE)$lambda2
 
 # Get trial difficulty
 humanLEDiff <- colMeans(humanLE)
@@ -717,13 +727,13 @@ residInvarFit <- cfa(
     group.equal = c("loadings", "intercepts", "residuals")
 )
 
-lavTestLRT(confInvarFit, metricInvarFit, scalarInvarFit, residInvarFit)
+lavTestLRT(confInvarFit, metricInvarFit)
 summary(confInvarFit, standardized = TRUE, fit.measures = TRUE)
 
 # Manual partial invariance model
 partialMetricInvarModel <- "
-    # Remember that LE is the first and is always set to 1 anyways
-    oLat =~ c(l1, l1)*LE + c(l2, l2)*Match + MOO
+    # Force a variable to be 1 (it should be one of the constrained loadings)
+    oLat =~ c(l1, l1)*LE + c(l2, l2)*Match + MOO + 1*LE
 "
 partialMetricInvarFit <- cfa(
     model = partialMetricInvarModel,
@@ -823,9 +833,6 @@ missingModels <- modelSummary$SbjID[!modelNames %in% modelInfo$Model]
 modelSummary <- modelSummary |>
     left_join(modelInfo, by = c("SbjID" = "Model"))
 
-# Change any column names with spaces to use underscore
-colnames(modelSummary) <- gsub(" ", "_", colnames(modelSummary))
-
 # Do a basic correlation between o and number of parameters and number of layers
 oParamCor <- cor.test(modelSummary$o, modelSummary$Parameters, use = "complete.obs")
 oLayerCor <- cor.test(modelSummary$o, modelSummary$Layers, use = "complete.obs")
@@ -841,10 +848,408 @@ familySummary <- modelSummary |>
     summarize(
         oMean = mean(o, na.rm = TRUE),
         oStd = sd(o, na.rm = TRUE),
-        oCV = abs(oStd / oMean),
         nModels = n(),
         Parameters = mean(Parameters),
         Layers = mean(Layers),
         .groups = "drop"
     )
 familySummary
+
+# Group models by dataset
+datasetSummary <- modelSummary |>
+    group_by(Training_Dataset) |>
+    summarize(
+        oMean = mean(o, na.rm = TRUE),
+        oStd = sd(o, na.rm = TRUE),
+        nModels = n(),
+        Parameters = mean(Parameters),
+        Layers = mean(Layers),
+        .groups = "drop"
+    )
+datasetSummary
+
+# Subset models based on family ----
+# Only keep models with at least 10 instances
+familySubset <- familySummary[familySummary$nModels >= 10, ]$Family
+
+# Image transformers, more accurately "attention models"
+itFamilies <- c(
+    "deit3",
+    "vit",
+    "cait",
+    "xcit",
+    "crossvit",
+    "resmlp",
+    "mobilevitv2",
+    "swin",
+    "volo"
+)
+
+nonITFamilies <- familySubset[!familySubset %in% itFamilies]
+
+# Subset model summaries
+itModelSummary <- modelSummary[modelSummary$Family %in% itFamilies, ]
+nonITModelSummary <- modelSummary[modelSummary$Family %in% nonITFamilies, ]
+
+# Recalculate o for each subset
+itModelSummary <- itModelSummary |>
+    mutate(
+        o = c((scale(LE) + scale(Match) + scale(MOO))) / 3
+    )
+nonITModelSummary <- nonITModelSummary |>
+    mutate(
+        o = c((scale(LE) + scale(Match) + scale(MOO))) / 3
+    )
+
+# Subset wide matrices
+itModelLE <- modelLE[itModelSummary$SbjID, ]
+itModelMatch <- modelMatch[itModelSummary$SbjID, ]
+itModelMOO <- modelMOO[itModelSummary$SbjID, ]
+
+nonITModelLE <- modelLE[nonITModelSummary$SbjID, ]
+nonITModelMatch <- modelMatch[nonITModelSummary$SbjID, ]
+nonITModelMOO <- modelMOO[nonITModelSummary$SbjID, ]
+
+# Item difficult with subsetted models ----
+# Calculate difficulties
+itModelLEDiff <- colMeans(itModelLE)
+itModelMatchDiff <- colMeans(itModelMatch)
+itModelMOODiff <- colMeans(itModelMOO)
+
+nonITModelLEDiff <- colMeans(nonITModelLE)
+nonITModelMatchDiff <- colMeans(nonITModelMatch)
+nonITModelMOODiff <- colMeans(nonITModelMOO)
+
+# Plot difficulty correlations where points are trial numbers
+itLEDiffCor <- cor(humanLEDiff, itModelLEDiff, use = "complete.obs")
+itLEDiffPlot <- ggplot(
+    data = tibble(
+        trial = seq_len(length(humanLEDiff)),
+        human = humanLEDiff,
+        model = itModelLEDiff
+    ),
+    aes(x = human, y = model)
+) +
+    geom_text(aes(label = trial)) +
+    geom_abline(intercept = 0, slope = 1) +
+    annotate(
+        "text",
+        x = 0.9,
+        y = 0,
+        label = paste0("r = ", round(itLEDiffCor, digits = 2))
+    ) +
+    labs(x = "Human", y = "IT Models", title = "LE Difficulty") +
+    coord_fixed(xlim = c(0, 1), ylim = c(0, 1)) +
+    theme_bw() +
+    theme(
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+    )
+itLEDiffPlot
+
+nonITLEDiffCor <- cor(humanLEDiff, nonITModelLEDiff, use = "complete.obs")
+nonITLEDiffPlot <- ggplot(
+    data = tibble(
+        trial = seq_len(length(humanLEDiff)),
+        human = humanLEDiff,
+        model = nonITModelLEDiff
+    ),
+    aes(x = human, y = model)
+) +
+    geom_text(aes(label = trial)) +
+    geom_abline(intercept = 0, slope = 1) +
+    annotate(
+        "text",
+        x = 0.9,
+        y = 0,
+        label = paste0("r = ", round(nonITLEDiffCor, digits = 2))
+    ) +
+    labs(x = "Human", y = "Non IT Models", title = "LE Difficulty") +
+    coord_fixed(xlim = c(0, 1), ylim = c(0, 1)) +
+    theme_bw() +
+    theme(
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+    )
+nonITLEDiffPlot
+
+itMatchDiffCor <- cor(humanMatchDiff, itModelMatchDiff, use = "complete.obs")
+itMatchDiffPlot <- ggplot(
+    data = tibble(
+        trial = seq_len(length(humanMatchDiff)),
+        human = humanMatchDiff,
+        model = itModelMatchDiff
+    ),
+    aes(x = human, y = model)
+) +
+    geom_text(aes(label = trial)) +
+    geom_abline(intercept = 0, slope = 1) +
+    annotate(
+        "text",
+        x = 0.9,
+        y = 0,
+        label = paste0("r = ", round(itMatchDiffCor, digits = 2))
+    ) +
+    labs(x = "Human", y = "IT Models", title = "Match Difficulty") +
+    coord_fixed(xlim = c(0, 1), ylim = c(0, 1)) +
+    theme_bw() +
+    theme(
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+    )
+itMatchDiffPlot
+
+nonITMatchDiffCor <- cor(humanMatchDiff, nonITModelMatchDiff, use = "complete.obs")
+nonITMatchDiffPlot <- ggplot(
+    data = tibble(
+        trial = seq_len(length(humanMatchDiff)),
+        human = humanMatchDiff,
+        model = nonITModelMatchDiff
+    ),
+    aes(x = human, y = model)
+) +
+    geom_text(aes(label = trial)) +
+    geom_abline(intercept = 0, slope = 1) +
+    annotate(
+        "text",
+        x = 0.9,
+        y = 0,
+        label = paste0("r = ", round(nonITMatchDiffCor, digits = 2))
+    ) +
+    labs(x = "Human", y = "Non IT Models", title = "Match Difficulty") +
+    coord_fixed(xlim = c(0, 1), ylim = c(0, 1)) +
+    theme_bw() +
+    theme(
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+    )
+nonITMatchDiffPlot
+
+itMOODiffCor <- cor(humanMOODiff, itModelMOODiff, use = "complete.obs")
+itMOODiffPlot <- ggplot(
+    data = tibble(
+        trial = seq_len(length(humanMOODiff)),
+        human = humanMOODiff,
+        model = itModelMOODiff
+    ),
+    aes(x = human, y = model)
+) +
+    geom_text(aes(label = trial)) +
+    geom_abline(intercept = 0, slope = 1) +
+    annotate(
+        "text",
+        x = 0.9,
+        y = 0,
+        label = paste0("r = ", round(itMOODiffCor, digits = 2))
+    ) +
+    labs(x = "Human", y = "IT Models", title = "MOO Difficulty") +
+    coord_fixed(xlim = c(0, 1), ylim = c(0, 1)) +
+    theme_bw() +
+    theme(
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+    )
+itMOODiffPlot
+
+nonITMOODiffCor <- cor(humanMOODiff, nonITModelMOODiff, use = "complete.obs")
+nonITMOODiffPlot <- ggplot(
+    data = tibble(
+        trial = seq_len(length(humanMOODiff)),
+        human = humanMOODiff,
+        model = nonITModelMOODiff
+    ),
+    aes(x = human, y = model)
+) +
+    geom_text(aes(label = trial)) +
+    geom_abline(intercept = 0, slope = 1) +
+    annotate(
+        "text",
+        x = 0.9,
+        y = 0,
+        label = paste0("r = ", round(nonITMOODiffCor, digits = 2))
+    ) +
+    labs(x = "Human", y = "Non IT Models", title = "MOO Difficulty") +
+    coord_fixed(xlim = c(0, 1), ylim = c(0, 1)) +
+    theme_bw() +
+    theme(
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+    )
+nonITMOODiffPlot
+
+# Correlation Matrix for IT/nonIT models ----
+# Calculate reliability
+itModelLERel <- matrix2Rel(itModelLE, check.keys = FALSE)$lambda2
+itModelMatchRel <- matrix2Rel(itModelMatch, check.keys = FALSE)$lambda2
+itModelMOORel <- matrix2Rel(itModelMOO, check.keys = FALSE)$lambda2
+
+# Create a correlation matrix plot for the IT models
+itModelCorMatrix <- corMatrixPlot(
+    data = itModelSummary |> select(LE, Match, MOO),
+    reliability = c(itModelLERel, itModelMatchRel, itModelMOORel),
+    nullInterval = c(-1, 0),
+    rscale = 1 / 3,
+    relSymbol = lambda2,
+    draw_dist = TRUE,
+    showN = TRUE
+)
+itModelCorMatrix
+
+# Calculate reliability
+nonITModelLERel <- splitHalf(nonITModelLE, check.keys = FALSE)$lambda2
+nonITModelMatchRel <- splitHalf(nonITModelMatch, check.keys = FALSE)$lambda2
+tmp <- nonITModelMOO[nonITModelMOODiff != 1]
+nonITModelMOORel <- splitHalf(tmp, check.keys = FALSE)$lambda2
+# Create a correlation matrix plot for the non-IT models
+nonITModelCorMatrix <- corMatrixPlot(
+    data = nonITModelSummary |> select(LE, Match, MOO),
+    reliability = c(nonITModelLERel, nonITModelMatchRel, nonITModelMOORel),
+    nullInterval = c(-1, 0),
+    rscale = 1 / 3,
+    relSymbol = lambda2,
+    draw_dist = TRUE,
+    showN = TRUE
+)
+nonITModelCorMatrix
+
+# Measurement invariance between models and humans ----
+# Bind human and different model types together
+allSplitSummary <- rbind(
+    humanSummary |> mutate(Group = "Human"),
+    itModelSummary |> select(names(humanSummary)) |> mutate(Group = "ITModel"),
+    nonITModelSummary |> select(names(humanSummary)) |> mutate(Group = "NonITModel")
+)
+
+# Redefine model for ergonomics
+oModel <- "
+    oLat =~ LE + Match + MOO
+"
+
+# First test invariance between model groups
+confInvarFit <- cfa(
+    oModel,
+    data = allSplitSummary |> filter(Group != "Human"),
+    group = "Group"
+)
+metricInvarFit <- cfa(
+    model = oModel,
+    data = allSplitSummary |> filter(Group != "Human"),
+    group = "Group",
+    group.equal = c("loadings")
+)
+scalarInvarFit <- cfa(
+    model = oModel,
+    data = allSplitSummary |> filter(Group != "Human"),
+    group = "Group",
+    group.equal = c("loadings", "intercepts")
+)
+residInvarFit <- cfa(
+    model = oModel,
+    data = allSplitSummary |> filter(Group != "Human"),
+    group = "Group",
+    group.equal = c("loadings", "intercepts", "residuals")
+)
+
+# Hierarhical testing
+modelSplitInvarTest <- lavTestLRT(confInvarFit, metricInvarFit, scalarInvarFit, residInvarFit)
+modelSplitInvarTest
+
+# Now test invariance between human and IT model groups
+confInvarFit <- cfa(
+    oModel,
+    data = allSplitSummary |> filter(Group != "NonITModel"),
+    group = "Group"
+)
+metricInvarFit <- cfa(
+    model = oModel,
+    data = allSplitSummary |> filter(Group != "NonITModel"),
+    group = "Group",
+    group.equal = c("loadings")
+)
+scalarInvarFit <- cfa(
+    model = oModel,
+    data = allSplitSummary |> filter(Group != "NonITModel"),
+    group = "Group",
+    group.equal = c("loadings", "intercepts")
+)
+residInvarFit <- cfa(
+    model = oModel,
+    data = allSplitSummary |> filter(Group != "NonITModel"),
+    group = "Group",
+    group.equal = c("loadings", "intercepts", "residuals")
+)
+
+# Hierarhical testing
+humanITModelInvarTest <- lavTestLRT(confInvarFit, metricInvarFit, scalarInvarFit, residInvarFit)
+
+# Now test invariance between human and non-IT model groups
+confInvarFit <- cfa(
+    oModel,
+    data = allSplitSummary |> filter(Group != "ITModel"),
+    group = "Group"
+)
+metricInvarFit <- cfa(
+    model = oModel,
+    data = allSplitSummary |> filter(Group != "ITModel"),
+    group = "Group",
+    group.equal = c("loadings")
+)
+scalarInvarFit <- cfa(
+    model = oModel,
+    data = allSplitSummary |> filter(Group != "ITModel"),
+    group = "Group",
+    group.equal = c("loadings", "intercepts")
+)
+residInvarFit <- cfa(
+    model = oModel,
+    data = allSplitSummary |> filter(Group != "ITModel"),
+    group = "Group",
+    group.equal = c("loadings", "intercepts", "residuals")
+)
+
+# Hierarhical testinghttps://mail.google.com/mail/u/1/#inbox/KtbxLvgprbfvKWTvglbRVntQvmShDfgNpL
+humanNonITModelInvarTest <- lavTestLRT(confInvarFit, metricInvarFit)
+
+# Now test all three groups together
+confInvarFit <- cfa(
+    oModel,
+    data = allSplitSummary,
+    group = "Group"
+)
+metricInvarFit <- cfa(
+    model = oModel,
+    data = allSplitSummary,
+    group = "Group",
+    group.equal = c("loadings")
+)
+scalarInvarFit <- cfa(
+    model = oModel,
+    data = allSplitSummary,
+    group = "Group",
+    group.equal = c("loadings", "intercepts")
+)
+residInvarFit <- cfa(
+    model = oModel,
+    data = allSplitSummary,
+    group = "Group",
+    group.equal = c("loadings", "intercepts", "residuals")
+)
+
+# Hierarhical testing
+allModelInvarTest <- lavTestLRT(confInvarFit, metricInvarFit, scalarInvarFit, residInvarFit)
+
+# Plot IT Human conf invariance
+confInvarFit <- cfa(
+    oModel,
+    data = allSplitSummary |> filter(Group != "ITModel"),
+    group = "Group"
+)
+semPaths(
+    confInvarFit,
+    "std",
+    intercepts = FALSE,
+    edge.color = "black",
+    edge.label.cex = 2,
+    ask = FALSE,
+    panelGroups = TRUE
+)

@@ -1,7 +1,8 @@
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras.models import Model, load_model
-#import tensorflow.keras.backend as K
+
+# import tensorflow.keras.backend as K
 import sys, os
 import glob
 import pandas as pd
@@ -58,7 +59,8 @@ def preprocess_speRsaNumba(acts):
 
     return result
 
-#this
+
+# this
 @nb.jit(nopython=True, parallel=True)
 def preprocess_eucRsaNumba(acts):
     assert acts.ndim in (2, 4)
@@ -126,7 +128,6 @@ def nb_cor(x, y):
 
     # Transpose back
     c = c.T
-
 
     return c
 
@@ -224,7 +225,8 @@ def preprocess_ckaNumba(acts):
 Correlation analysis functions
 """
 
-#then this
+
+# then this
 @nb.jit(nopython=True, parallel=True)
 def do_rsaNumba(rdm1, rdm2):
     """
@@ -264,13 +266,9 @@ def do_pwcca(acts1, acts2):
     try:
         # acts1.shape cannot be bigger than acts2.shape for pwcca
         if acts1.shape <= acts2.shape:
-            result = np.mean(
-                pwcca.compute_pwcca(acts1.T, acts2.T, epsilon=1e-10)[0]
-            )
+            result = np.mean(pwcca.compute_pwcca(acts1.T, acts2.T, epsilon=1e-10)[0])
         else:
-            result = np.mean(
-                pwcca.compute_pwcca(acts2.T, acts1.T, epsilon=1e-10)[0]
-            )
+            result = np.mean(pwcca.compute_pwcca(acts2.T, acts1.T, epsilon=1e-10)[0])
     except np.linalg.LinAlgError as e:
         result = np.nan
         print(f"svd in pwcca failed, saving nan.")
@@ -345,13 +343,9 @@ def correspondence_test(
     model2Reps = [np.load(rep) for rep in model2Glob]
 
     # Get all representation layer combos and their similarities
-    comboSims = list(
-        itertools.product(range(len(model1Reps)), range(len(model1Reps)))
-    )
+    comboSims = list(itertools.product(range(len(model1Reps)), range(len(model1Reps))))
     comboSims = np.array(comboSims)
-    comboSims = np.hstack(
-        (comboSims, np.zeros((len(comboSims), len(sim_fun))))
-    )
+    comboSims = np.hstack((comboSims, np.zeros((len(comboSims), len(sim_fun)))))
 
     print("Generating representation simliarities", flush=True)
     for combo in comboSims:
@@ -371,9 +365,7 @@ def correspondence_test(
     winners = np.zeros((len(model1Reps), len(names)), dtype="int")
     for layer in range(len(model1Reps)):
         print(f"Finding the winner for layer {layer}")
-        winners[layer, :] = np.argmax(
-            comboSims[comboSims[:, 0] == layer, 2:], axis=0
-        )
+        winners[layer, :] = np.argmax(comboSims[comboSims[:, 0] == layer, 2:], axis=0)
 
     winners
 
@@ -386,9 +378,7 @@ def make_allout_model(model):
     """
     inp = model.input
 
-    modelOuts = [
-        layer.output for layer in model.layers if "dropout" not in layer.name
-    ]
+    modelOuts = [layer.output for layer in model.layers if "dropout" not in layer.name]
 
     return Model(inputs=inp, outputs=modelOuts)
 
@@ -459,9 +449,7 @@ def get_trajectories(directory, file_str="*", file_name=None):
 def get_model_from_args(args, return_model=True, modelType="seed"):
     # Get model
     if hasattr(args, "model_name") and args.model_name == "mobilenet":
-        model = tf.keras.applications.MobileNetV3Small(
-            input_shape=(224, 224, 3)
-        )
+        model = tf.keras.applications.MobileNetV3Small(input_shape=(224, 224, 3))
         model.compile(metrics=["top_k_categorical_accuracy"])
         print(f"Model loaded: MobileNetV3Small", flush=True)
         model.summary()
@@ -482,12 +470,8 @@ def get_model_from_args(args, return_model=True, modelType="seed"):
 
         # Load csv and get model parameters
         modelSeeds = pd.read_csv(args.model_seeds)
-        weightSeed = modelSeeds.loc[
-            modelSeeds["index"] == modelIdx, "weight"
-        ].item()
-        shuffleSeed = modelSeeds.loc[
-            modelSeeds["index"] == modelIdx, "shuffle"
-        ].item()
+        weightSeed = modelSeeds.loc[modelSeeds["index"] == modelIdx, "weight"].item()
+        shuffleSeed = modelSeeds.loc[modelSeeds["index"] == modelIdx, "shuffle"].item()
 
         # Load main model
         modelName = f"w{weightSeed}s{shuffleSeed}.pb"
@@ -588,9 +572,7 @@ Large scale analysis functions
 """
 
 
-def multi_analysis(
-    rep1, rep2, preproc_fun, sim_fun, names=None, verbose=False
-):
+def multi_analysis(rep1, rep2, preproc_fun, sim_fun, names=None, verbose=False):
     """
     Perform similarity analysis between rep1 and rep2 once for each method as
     indicated by first applying a preproc_fun then the sim_fun. preproc_fun
@@ -720,7 +702,7 @@ def get_unstruct_model_sims(
                 ).astype("float32")
 
             # Get similarities
-            #can replace with this/then this
+            # can replace with this/then this
             simDict = multi_analysis(
                 rep1, rep2, preprocFuns, simFuns, names=simNames, verbose=False
             )
@@ -737,9 +719,7 @@ def get_unstruct_model_sims(
     return sims
 
 
-def get_seed_model_sims(
-    modelSeeds, repDir, layer, preprocFun, simFun, noise=None
-):
+def get_seed_model_sims(modelSeeds, repDir, layer, preprocFun, simFun, noise=None):
     """
     Return similarity matrix across all models in repDir and from a specific
     layer index using preprocFun and simFun. Representations should be in their
@@ -774,9 +754,7 @@ def get_seed_model_sims(
             print(f"-Calculating similarity against index {j} model: {model2}")
 
             # Load representations of j and preprocess
-            rep2 = np.load(
-                os.path.join(repDir, model2, f"{model2}l{layer}.npy")
-            )
+            rep2 = np.load(os.path.join(repDir, model2, f"{model2}l{layer}.npy"))
             if noise is not None:
                 rep2 = rep2 + np.random.normal(
                     0, noise * np.std(rep2), size=rep2.shape
@@ -813,9 +791,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--shuffle_seed", type=int, help="shuffle seed of the main model"
     )
-    parser.add_argument(
-        "--weight_seed", type=int, help="weight seed of the main model"
-    )
+    parser.add_argument("--weight_seed", type=int, help="weight seed of the main model")
     parser.add_argument(
         "--model_seeds",
         type=str,
@@ -881,18 +857,16 @@ if __name__ == "__main__":
             modelList = glob.glob(os.path.join(args.reps_dir, "*.npy"))
             # Get mode
             modelPath = modelList[args.model_index]
-            modelName = modelPath.split("/")[-1].split(".")[0].split('-Reps')[0]
+            modelName = modelPath.split("/")[-1].split(".")[0].split("-Reps")[0]
 
         # List model representations and make combinations
         reps = glob.glob(args.reps_dir + "/*")
         for rep in reps:
             if "w" in rep and "s" in rep:
-                reps = [
-                    rep.split("/")[-1] for rep in reps if "w" in rep and "s" in rep
-                ]
+                reps = [rep.split("/")[-1] for rep in reps if "w" in rep and "s" in rep]
             else:
                 reps = [
-                    rep.split("/")[-1].split(".")[0].split('-Reps')[0] for rep in reps
+                    rep.split("/")[-1].split(".")[0].split("-Reps")[0] for rep in reps
                 ]
         # reps = [
         #     rep.split("/")[-1] for rep in reps if "w" in rep and "s" in rep else
@@ -904,15 +878,15 @@ if __name__ == "__main__":
         if args.output_dir is not None:
             fileName = f"{args.output_dir}/{modelName}Correspondence.csv"
         else:
-            fileName = f"../outputs/masterOutput/correspondence/{modelName}Correspondence.csv"
+            fileName = (
+                f"../outputs/masterOutput/correspondence/{modelName}Correspondence.csv"
+            )
         if os.path.exists(fileName):
             # Load existing dataframe
             print("path exists")
             winners = pd.read_csv(fileName, index_col=0)
         else:
-            numLayers = len(
-                glob.glob(f"{args.reps_dir}/{reps[0]}/{reps[0]}l*.npy")
-            )
+            numLayers = len(glob.glob(f"{args.reps_dir}/{reps[0]}/{reps[0]}l*.npy"))
             winners = pd.DataFrame(
                 sum([[combo] * numLayers for combo in repCombos], []),
                 columns=["model1", "model2"],
@@ -924,24 +898,20 @@ if __name__ == "__main__":
             print(f"Comparing {model1} and {model2}", flush=True)
             if np.all(
                 winners.loc[
-                    (winners["model1"] == model1)
-                    & (winners["model2"] == model2),
+                    (winners["model1"] == model1) & (winners["model2"] == model2),
                     analysisNames,
                 ]
                 == -1
             ):
                 winners.loc[
-                    (winners["model1"] == model1)
-                    & (winners["model2"] == model2),
+                    (winners["model1"] == model1) & (winners["model2"] == model2),
                     analysisNames,
                 ] = correspondence_test(
                     model1, model2, preprocFuns, simFuns, names=analysisNames
                 )
 
                 print("Saving results", flush=True)
-                winners.to_csv(
-                    fileName
-                )
+                winners.to_csv(fileName)
             else:
                 print("This pair is complete, skipping", flush=True)
 
@@ -960,9 +930,7 @@ if __name__ == "__main__":
         preprocFuns, simFuns, simNames = get_funcs(args.simSet)
 
         for layer in args.layer_index:
-            for preprocFun, simFun, simName in zip(
-                preprocFuns, simFuns, simNames
-            ):
+            for preprocFun, simFun, simName in zip(preprocFuns, simFuns, simNames):
                 print(f"Working on layer {layer} with {simFun.__name__}")
                 simMat = get_seed_model_sims(
                     args.model_seeds,
@@ -982,9 +950,7 @@ if __name__ == "__main__":
                     if not os.path.exists(args.output_dir):
                         os.makedirs(args.output_dir)
                     np.save(
-                        os.path.join(
-                            args.output_dir, f"simMat_l{layer}_{simName}.npy"
-                        ),
+                        os.path.join(args.output_dir, f"simMat_l{layer}_{simName}.npy"),
                         simMat,
                     )
     elif args.analysis == "itemSimMat":
@@ -1005,91 +971,28 @@ if __name__ == "__main__":
             args.noise,
         )
     else:
-        # can delete if needed
-        rep_dir = "../hubReps/all_reps/"
+        import time
+        # Simulate pairs of representations
+        nRepeats = 10
+        n = 200
+        rep1K = 512
+        rep2K = 256
 
-        # Find all models, doesn't  remove -Reps.npy
-        models = glob.glob(os.path.join(rep_dir, '*.npy'))
+        # Simulate random representations
+        rep1 = np.random.normal(0, 1, size=(n, rep1K)).astype(np.float32)
+        rep2 = np.random.normal(0, 1, size=(n, rep2K)).astype(np.float32)
 
-        # Create dataframe for model similarities
-        #master_array = np.load('../correspondences/master_numpy_new.npy', allow_pickle=True)
-        sims = pd.DataFrame(columns=["model1", "model2", "eucRsa"])
+        # Calculate RDM
+        def numbaRSA(rep1, rep2):
+            rdm1 = preprocess_eucRsaNumba(rep1)
+            rdm2 = preprocess_eucRsaNumba(rep2)
 
-        testing = True
-        if testing is True:
-            print('testing is true')
-            testmodels = ['../hubReps/all_reps/vgg19_bn-Reps.npy', '../hubReps/all_reps/maxvit_tiny_rw_224-Reps.npy']
+            # Calculate RSA
+            print(do_rsaNumba(rdm1, rdm2))
 
-            rep1 = np.load(
-                os.path.join(testmodels[0])
-            )
-            rep2 = np.load(
-                os.path.join(testmodels[1])
-            )
+        t0 = time.time()
 
-            # Get similarities
-            rep1_proc = preprocess_eucRsaNumba(rep1)
-            rep2_proc = preprocess_eucRsaNumba(rep2)
-            print(rep1_proc)
-            print()
-            print()
-            print(rep2_proc)
+        for _ in range(nRepeats):
+            numbaRSA(rep1, rep2)
 
-            sim = do_rsaNumba(rep1_proc, rep2_proc)
-            print(sim)
-
-            combo_names = [comb.split('/')[-1].split('-Reps')[0] for comb in testmodels]
-
-            # Add to dataframe
-            sims.loc[len(sims)] = list(combo_names) + [sim]
-            np.save(
-                os.path.join(
-                    args.output_dir, f"master_numpy_testing.npy"
-                ),
-                sims,
-            )
-
-        if testing is False:
-            #sims.to_csv(os.path.join(args.output_dir, 'correspondences.csv'))
-            for combo in itertools.combinations(models, 2):
-                print("Comparing models:", combo)
-                combo_names = [comb.split('/')[-1].split('-Reps')[0] for comb in combo]
-                if len(np.intersect1d(np.where(sims.model1 == combo_names[0]), np.where(sims.model2 == combo_names[1]))) != 0:
-                    print('Sim Exists 0, Skipping.')
-                elif len(np.intersect1d(np.where(sims.model1 == combo_names[1]), np.where(sims.model2 == combo_names[0]))) != 0:
-                    print('Sim Exists 1, Skipping.')
-                else:
-                    # Get reps
-                    rep1 = np.load(
-                        os.path.join(combo[0])
-                    )
-                    rep2 = np.load(
-                        os.path.join(combo[1])
-                    )
-
-                    # Get similarities
-                    rep1_proc = preprocess_eucRsaNumba(rep1)
-                    rep2_proc = preprocess_eucRsaNumba(rep2)
-
-                    sim = do_rsaNumba(rep1_proc, rep2_proc)
-
-                    # Add to dataframe
-                    sims.loc[len(sims)] = list(combo_names) + [sim]
-                    np.save(
-                        os.path.join(
-                            args.output_dir, f"master_numpy_new.npy"
-                        ),
-                        sims,
-                    )
-
-
-        # arr = []
-        # for file in os.listdir(args.output_dir):
-        #     temp = np.load(f'{args.output_dir}/{file}', allow_pickle=True)
-        #     arr.append(temp)
-        #
-        # df = pd.DataFrame(arr)
-        # print(df)
-
-#htop see cores over ssh
-    #    sims
+        print(f"Time taken: {time.time() - t0}")
